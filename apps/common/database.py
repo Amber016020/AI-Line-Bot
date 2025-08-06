@@ -110,3 +110,19 @@ def get_weekly_summary(user_id):
         rows = cur.fetchall()
 
         return {row[0]: row[1] for row in rows}
+    
+def get_user_transactions(user_id, days=7):
+    user_uuid = get_user_uuid(user_id)
+    if not user_uuid:
+        return []
+
+    since = datetime.utcnow() - timedelta(days=days)
+
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT category, amount
+            FROM transactions
+            WHERE user_id = %s AND created_at >= %s
+        """, (user_uuid, since))
+
+        return [{'category': r[0], 'amount': r[1]} for r in cur.fetchall()]

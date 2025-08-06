@@ -2,6 +2,8 @@ import re
 import apps.common.database as db
 from linebot.v3.messaging.models import TextMessage
 from flask import Flask, request, abort
+import apps.handlers.call_openai_chatgpt as ai  # 如果在其他檔案
+
 
 from linebot.v3 import (
     WebhookHandler
@@ -188,6 +190,7 @@ def handle_message(event):
                     ]
                 )
             )
+        
         # 4. 處理「早餐 60」這類直接輸入的記帳內容
         else:
             match = re.match(r'^(.+?)\s+(\d+)$', text)
@@ -200,6 +203,15 @@ def handle_message(event):
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
                         messages=[TextMessage(text=f'已記錄：{category} {amount} 元')]
+                    )
+                )
+            # 4. 處理 AI 問答
+            elif is_ai_question(text):  # 先判斷是否為 AI 問句
+                response = handle_ai_question(user_id, text)
+                line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text=response, quick_reply=get_main_quick_reply())]
                     )
                 )
 
@@ -233,6 +245,29 @@ def get_main_quick_reply():
             QuickReplyItem(action=MessageAction(label='本週總結', text='本週總結')),
         ]
     )
+    
+def handle_ai_question(user_id, user_question):
+    # 從資料庫取得最近一週的記帳資料
+    transactions = db.get_user_transactions(user_id, days=7)
+
+    if not transactions:
+        return "這週還沒有任何記帳資料喔～"
+
+    # 轉成 prompt 給 OpenAI
+    context = "\n".join([f"{t['category']}: {t['amount']} 元" for t in transactions])
+    
+    prompt = (
+        f"以下是使用者最近 7 天的支出紀錄：\n{context}\n"
+        f"使用者問：「{user_question}」\n"
+        "請根據上述紀錄，用一段簡短清楚的話回答問題。"
+    )
+
+    return ai.call_openai_chatgpt(prompt)
+
+def is_ai_question(text):
+    keywords = ['花最多', '平均', '省錢', '建議', '多少', '幫我看']
+    return any(kw in text for kw in keywords)
+
     
 if __name__ == "__main__":
     app.run()
